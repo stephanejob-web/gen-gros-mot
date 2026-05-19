@@ -1,0 +1,10 @@
+# ── Détection de gros mots (cœur) ───────────────────────────────────────────
+# Aucune dépendance externe — bibliothèque standard Python uniquement
+
+# ── Microphone + transcription (mic_listener.py) ─────────────────────────────
+# (macOS) brew install portaudio  ← requis avant pyaudio
+# Moteur STT : Vosk (offline, 100 % local, supporte Python 3.14)
+vosk>=0.3.44
+pyaudio>=0.2.14
+numpy>=1.24           # optionnel, pour la calibration
+matplotlib>=3.7       # graphique statistiques live
