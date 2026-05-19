@@ -81,8 +81,8 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-> **Note Linux :** l'alerte vocale utilise `say` (commande macOS uniquement).  
-> Sur Linux, cette fonctionnalité est silencieuse — la détection et l'affichage fonctionnent normalement.
+> **Note Linux :** l'alerte vocale utilise `espeak` (inclus dans la commande d'installation ci-dessus).  
+> Les voix disponibles sont `fr`, `fr+m1`, `fr+f1`, `fr+m3`, etc.
 
 ---
 

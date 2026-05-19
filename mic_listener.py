@@ -14,12 +14,15 @@ Usage :
 import argparse
 import json
 import os
+import platform
 import subprocess
 import threading
 import time
 import urllib.request
 import zipfile
 from collections import Counter
+
+_OS = platform.system()   # "Darwin", "Linux", "Windows"
 
 import pyaudio
 from vosk import Model, KaldiRecognizer, SetLogLevel
@@ -59,7 +62,13 @@ MODELS = {
 RATE  = 16_000   # Hz requis par Vosk
 CHUNK = 4_000    # frames par lecture (~0,25 s)
 
-VOIX_DEFAUT = "Thomas"   # voix macOS fr_FR — alternatives : Jacques, Eddy (Français (France))
+# Voix TTS par défaut selon l'OS
+if _OS == "Darwin":
+    VOIX_DEFAUT = "Thomas"   # voix macOS fr_FR — alternatives : Jacques, Eddy
+elif _OS == "Linux":
+    VOIX_DEFAUT = "fr"       # langue espeak — alternatives : fr+m1, fr+f1
+else:
+    VOIX_DEFAUT = ""         # Windows : non supporté
 
 # ── Statistiques ───────────────────────────────────────────────────────────────
 _stats_total:    int     = 0
@@ -195,15 +204,19 @@ def calibrer(duree: float = 3.0) -> None:
     print(f"  Tout va bien — Vosk gère le seuil automatiquement.\n")
 
 
-# ── Synthèse vocale (macOS say) ────────────────────────────────────────────────
+# ── Synthèse vocale (macOS : say / Linux : espeak) ────────────────────────────
 
 _tts_lock = threading.Lock()   # évite que deux alertes se chevauchent
 
 
 def _dire(message: str, voix: str) -> None:
-    """Joue le message via la voix macOS — bloquant, à lancer dans un thread."""
+    """Joue le message via TTS (macOS : say, Linux : espeak) — bloquant, à lancer dans un thread."""
     with _tts_lock:
-        subprocess.run(["say", "-v", voix, message], check=False)
+        if _OS == "Darwin":
+            subprocess.run(["say", "-v", voix, message], check=False)
+        elif _OS == "Linux":
+            subprocess.run(["espeak", "-v", voix, message], check=False)
+        # Windows : non supporté, alerte silencieuse
 
 
 def alerter(nom: str, voix: str) -> None:
@@ -307,11 +320,15 @@ def main() -> None:
         metavar="PRENOM",
         help="Prénom prononcé dans l'alerte vocale (défaut : Jean).",
     )
+    voix_help = {
+        "Darwin": f"Voix macOS fr_FR (défaut : {VOIX_DEFAUT}). Autres : Jacques, 'Eddy (Français (France))'.",
+        "Linux":  f"Langue espeak (défaut : {VOIX_DEFAUT}). Autres : fr+m1, fr+f1, fr+m3.",
+    }.get(_OS, "Voix TTS (non supporté sur cet OS).")
     parser.add_argument(
         "--voix",
         default=VOIX_DEFAUT,
         metavar="VOIX",
-        help=f"Voix macOS fr_FR (défaut : {VOIX_DEFAUT}). Autres : Jacques, 'Eddy (Français (France))'.",
+        help=voix_help,
     )
     parser.add_argument(
         "--calibrer",
