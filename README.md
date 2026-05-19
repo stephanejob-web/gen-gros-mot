@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🤬 Détecteur de Gros Mots
+# 🔍 Vigilang
 
 **Un outil de prise de conscience pour mieux maîtriser son langage au quotidien**  
 *Analyse de texte · Écoute microphone temps réel · 100 % offline*
@@ -72,7 +72,7 @@ Texte censuré : va te faire ****** espèce de ***
 ## Architecture
 
 ```
-gen-gros-mot/
+vigilang/
 │
 ├── gros_mot/               # Bibliothèque de détection — aucune dépendance externe
 │   ├── __init__.py         # API publique : detect, is_clean, censor
@@ -106,8 +106,8 @@ gen-gros-mot/
 brew install portaudio
 
 # 2. Cloner le dépôt
-git clone https://github.com/stephanejob-web/gen-gros-mot.git
-cd gen-gros-mot
+git clone https://github.com/stephanejob-web/vigilang.git
+cd vigilang
 
 # 3. Créer et activer un environnement virtuel
 python3 -m venv .venv
@@ -127,8 +127,8 @@ sudo apt update
 sudo apt install portaudio19-dev python3-dev espeak
 
 # 2. Cloner le dépôt
-git clone https://github.com/stephanejob-web/gen-gros-mot.git
-cd gen-gros-mot
+git clone https://github.com/stephanejob-web/vigilang.git
+cd vigilang
 
 # 3. Créer et activer un environnement virtuel
 python3 -m venv .venv
@@ -150,8 +150,8 @@ pip install -r requirements.txt
 
 ```powershell
 # 1. Cloner le dépôt
-git clone https://github.com/stephanejob-web/gen-gros-mot.git
-cd gen-gros-mot
+git clone https://github.com/stephanejob-web/vigilang.git
+cd vigilang
 
 # 2. Créer et activer un environnement virtuel
 python -m venv .venv
