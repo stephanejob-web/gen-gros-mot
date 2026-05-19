@@ -1,109 +1,161 @@
-# Détecteur de gros mots — Français
+<div align="center">
 
-Bibliothèque Python et outils CLI pour détecter, classifier et censurer les gros mots en français.  
-Fonctionne en deux modes : **analyse de texte** (CLI) et **écoute microphone en temps réel** (Vosk, 100 % offline).
+# 🤬 Détecteur de Gros Mots
+
+**Bibliothèque Python pour détecter, classifier et censurer les gros mots en français**  
+*Analyse de texte · Écoute microphone temps réel · 100 % offline*
+
+[![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
+[![Licence MIT](https://img.shields.io/badge/Licence-MIT-green?style=flat-square)](LICENSE)
+[![macOS](https://img.shields.io/badge/macOS-supported-black?style=flat-square&logo=apple)](https://www.apple.com/macos/)
+[![Linux](https://img.shields.io/badge/Linux-supported-FCC624?style=flat-square&logo=linux&logoColor=black)](https://kernel.org/)
+[![Vosk](https://img.shields.io/badge/STT-Vosk-blue?style=flat-square)](https://alphacephei.com/vosk/)
+
+</div>
+
+---
+
+## Aperçu
+
+Ce projet propose deux outils complémentaires pour analyser le langage en français :
+
+- **`cli.py`** — Analyse un texte (argument, fichier ou stdin) et retourne les gros mots détectés avec leur niveau de gravité, ou une version censurée.
+- **`mic_listener.py`** — Écoute le microphone en continu, transcrit la parole en texte via [Vosk](https://alphacephei.com/vosk/) (moteur de reconnaissance vocale offline) et déclenche une alerte vocale dès qu'un gros mot est prononcé.
+
+```
+$ python cli.py "c'est quoi ce bordel de connard"
+
+✗ 2 gros mot(s) détecté(s) :
+
+  [faible]   "bordel"
+  [modéré]   "connard"
+```
+
+```
+$ python cli.py --censor "va te faire foutre espèce de con"
+
+Texte censuré : va te faire ****** espèce de ***
+```
 
 ---
 
 ## Fonctionnalités
 
-- Détection de mots isolés **et** d'expressions multi-mots (`"va te faire foutre"`, `"fils de pute"`, …)
-- **3 niveaux de gravité** : faible · modéré · élevé
-- Normalisation robuste : accents, casse, ponctuation collée
-- Support du français québécois (`tabarnak`, `câlice`, `ostie`, …)
-- Censure intégrée : `"va te faire foutre"` → `"va te faire ******"`
-- Mode microphone : transcription Vosk offline + alerte vocale
-- Graphiques de statistiques en direct (matplotlib)
-- Téléchargement automatique du modèle Vosk au premier lancement
-- Aucune dépendance externe pour le cœur de détection (bibliothèque standard uniquement)
+### Détection de texte
+- ✅ Mots isolés **et** expressions multi-mots (`"ta gueule"`, `"fils de pute"`, `"va te faire foutre"`, …)
+- ✅ **3 niveaux de gravité** : faible, modéré, élevé
+- ✅ Normalisation robuste : accents, casse, ponctuation collée (`"C'estMERDE!"` → détecté)
+- ✅ Support du français québécois (`tabarnak`, `câlice`, `ostie`, `crisse`)
+- ✅ Censure intégrée avec remplacement caractère par caractère
+- ✅ Code de sortie shell (`0` = propre, `1` = gros mots) — intégrable dans des scripts CI/CD
+
+### Écoute microphone
+- ✅ Transcription **100 % locale** via Vosk (aucune donnée envoyée sur Internet)
+- ✅ Résultats partiels affichés en temps réel pendant que vous parlez
+- ✅ Alerte vocale automatique (macOS : `say`, Linux : `espeak`)
+- ✅ Téléchargement automatique du modèle Vosk au premier lancement
+- ✅ Calibration du microphone intégrée
+- ✅ Graphiques de statistiques live (top 10 mots, répartition par gravité)
 
 ---
 
-## Structure du projet
+## Architecture
 
 ```
 gen-gros-mot/
-├── gros_mot/           # Bibliothèque de détection (pas de dépendances)
-│   ├── __init__.py     # API publique : detect, is_clean, censor
-│   ├── detector.py     # Moteur de détection
-│   ├── normalizer.py   # Normalisation unicode / casse
-│   └── wordlist.py     # Liste de mots et expressions avec niveaux de gravité
-├── cli.py              # Outil CLI (analyse de texte)
-├── mic_listener.py     # Écoute microphone en temps réel (Vosk)
-└── requirements.txt
+│
+├── gros_mot/               # Bibliothèque de détection — aucune dépendance externe
+│   ├── __init__.py         # API publique : detect, is_clean, censor
+│   ├── detector.py         # Moteur principal de détection
+│   ├── normalizer.py       # Normalisation unicode, accents, casse
+│   └── wordlist.py         # Liste de mots + expressions avec niveaux de gravité
+│
+├── cli.py                  # Outil CLI — analyse de texte
+├── mic_listener.py         # Écoute microphone en temps réel (Vosk)
+└── requirements.txt        # Dépendances Python
 ```
+
+> Le cœur de détection (`gros_mot/`) ne dépend d'**aucune bibliothèque externe**.  
+> Il peut être utilisé seul dans n'importe quel projet Python.
 
 ---
 
 ## Installation
 
-### Prérequis communs
+### Prérequis
 
-- Python 3.10 ou supérieur
+- Python **3.10** ou supérieur
 - `pip` à jour : `pip install --upgrade pip`
 
 ---
 
-### macOS
+### 🍎 macOS
 
 ```bash
-# 1. Dépendance système pour l'audio
+# 1. Installer la dépendance audio système
 brew install portaudio
 
-# 2. Cloner le projet
+# 2. Cloner le dépôt
 git clone https://github.com/stephanejob-web/gen-gros-mot.git
 cd gen-gros-mot
 
-# 3. Environnement virtuel (recommandé)
-python3 -m venv .venv && source .venv/bin/activate
+# 3. Créer et activer un environnement virtuel
+python3 -m venv .venv
+source .venv/bin/activate
 
-# 4. Dépendances Python
+# 4. Installer les dépendances Python
 pip install -r requirements.txt
 ```
 
 ---
 
-### Linux (Debian / Ubuntu)
+### 🐧 Linux (Debian / Ubuntu / Mint)
 
 ```bash
-# 1. Dépendances système
+# 1. Installer les dépendances système
 sudo apt update
 sudo apt install portaudio19-dev python3-dev espeak
 
-# 2. Cloner le projet
+# 2. Cloner le dépôt
 git clone https://github.com/stephanejob-web/gen-gros-mot.git
 cd gen-gros-mot
 
-# 3. Environnement virtuel (recommandé)
-python3 -m venv .venv && source .venv/bin/activate
+# 3. Créer et activer un environnement virtuel
+python3 -m venv .venv
+source .venv/bin/activate
 
-# 4. Dépendances Python
+# 4. Installer les dépendances Python
 pip install -r requirements.txt
 ```
 
-> **Note Linux :** l'alerte vocale utilise `espeak` (inclus dans la commande d'installation ci-dessus).  
-> Les voix disponibles sont `fr`, `fr+m1`, `fr+f1`, `fr+m3`, etc.
+> **Arch Linux / Manjaro :** remplacer l'étape 1 par  
+> `sudo pacman -S portaudio espeak-ng`
+
+> **Fedora / RHEL :** remplacer l'étape 1 par  
+> `sudo dnf install portaudio-devel espeak`
 
 ---
 
-### Windows
+### 🪟 Windows
 
 ```powershell
-# 1. Cloner le projet
+# 1. Cloner le dépôt
 git clone https://github.com/stephanejob-web/gen-gros-mot.git
 cd gen-gros-mot
 
-# 2. Environnement virtuel (recommandé)
+# 2. Créer et activer un environnement virtuel
 python -m venv .venv
 .venv\Scripts\activate
 
-# 3. Dépendances Python
+# 3. Installer les dépendances Python
 pip install -r requirements.txt
 ```
 
-> **Note Windows :** si l'installation de `pyaudio` échoue, téléchargez le wheel précompilé depuis  
-> [https://www.lfd.uci.edu/~gohlke/pythonlibs/#pyaudio](https://www.lfd.uci.edu/~gohlke/pythonlibs/#pyaudio)  
-> puis installez-le avec `pip install PyAudio‑*.whl`.
+> **Si l'installation de `pyaudio` échoue**, téléchargez le wheel précompilé depuis  
+> [lfd.uci.edu/~gohlke/pythonlibs/#pyaudio](https://www.lfd.uci.edu/~gohlke/pythonlibs/#pyaudio)  
+> puis installez-le manuellement : `pip install PyAudio‑*.whl`
+
+> **Note :** l'alerte vocale n'est pas supportée sur Windows. La détection et l'affichage fonctionnent normalement.
 
 ---
 
@@ -111,119 +163,193 @@ pip install -r requirements.txt
 
 ### CLI — Analyse de texte
 
+#### Syntaxe générale
+
 ```bash
-# Analyser une phrase directement
-python cli.py "c'est quoi ce bordel de merde"
+python cli.py [OPTIONS] [TEXTE]
+```
 
-# Lire depuis un fichier
-python cli.py -f mon_texte.txt
+| Option | Description |
+|--------|-------------|
+| `TEXTE` | Texte à analyser en argument direct |
+| `-f FICHIER` | Lire le texte depuis un fichier |
+| `--censor` | Afficher la version censurée (remplace par `***`) |
+| `--propre` | Code de sortie uniquement : `0` = propre, `1` = gros mots |
+| `--no-color` | Désactiver les couleurs ANSI (utile pour les logs) |
 
-# Lire depuis stdin (pipeline)
-echo "putain c'est nul" | python cli.py
+#### Exemples
 
-# Afficher le texte censuré
+```bash
+# Analyse directe
+python cli.py "putain c'est quoi ce bordel"
+
+# Depuis un fichier
+python cli.py -f discours.txt
+
+# Depuis stdin (pipeline)
+cat message.txt | python cli.py
+
+# Version censurée
 python cli.py --censor "va te faire foutre connard"
+# → Texte censuré : va te faire ****** *******
 
-# Code de sortie uniquement (0 = propre, 1 = gros mots détectés)
+# Intégration dans un script shell
 python cli.py --propre "texte à vérifier"
-
-# Désactiver les couleurs (logs, CI)
-python cli.py --no-color "texte à vérifier"
-```
-
-Exemple de sortie :
-
-```
-✗ 2 gros mot(s) détecté(s) :
-
-  [faible]   "bordel"
-  [faible]   "merde"
+echo $?   # 0 si propre, 1 si gros mots détectés
 ```
 
 ---
 
 ### Microphone — Écoute en temps réel
 
-Le modèle Vosk (~50 Mo) est téléchargé automatiquement au premier lancement.
+#### Syntaxe générale
 
 ```bash
-# Démarrer l'écoute (modèle léger, recommandé)
-python mic_listener.py
-
-# Calibrer le microphone avant de démarrer
-python mic_listener.py --calibrer
-
-# Utiliser le grand modèle (1,4 Go, plus précis)
-python mic_listener.py --modele grand
-
-# Personnaliser le prénom dans l'alerte vocale
-python mic_listener.py --nom Marie
-
-# Toutes les options
-python mic_listener.py --help
+python mic_listener.py [OPTIONS]
 ```
 
-En cours d'écoute, chaque phrase reconnue est analysée en temps réel et un graphique matplotlib affiche les statistiques de session (top 10 mots, répartition par gravité).
+| Option | Valeur par défaut | Description |
+|--------|-------------------|-------------|
+| `--modele` | `petit` | Modèle Vosk : `petit` (50 Mo) ou `grand` (1,4 Go) |
+| `--nom` | `Jean` | Prénom utilisé dans l'alerte vocale |
+| `--voix` | `Thomas` (macOS) / `fr` (Linux) | Voix TTS |
+| `--calibrer` | — | Mesurer le bruit ambiant avant de démarrer |
+
+#### Exemples
+
+```bash
+# Démarrage rapide
+python mic_listener.py
+
+# Avec calibration du microphone
+python mic_listener.py --calibrer
+
+# Modèle haute précision
+python mic_listener.py --modele grand
+
+# Personnaliser l'alerte vocale
+python mic_listener.py --nom Marie
+
+# macOS — changer la voix
+python mic_listener.py --voix Jacques
+
+# Linux — changer la voix espeak
+python mic_listener.py --voix fr+f1
+```
+
+#### Ce qui s'affiche
+
+```
+Microphone actif — nom : Jean  voix : Thomas  — Ctrl+C pour quitter.
+
+⬤ putain c'est...
+Entendu : putain c'est quoi ce bordel
+  ⚠  [faible]  « putain »
+  ⚠  [faible]  « bordel »
+  Total session : 2 gros mot(s)
+```
+
+Le modèle Vosk est **téléchargé automatiquement** au premier lancement si absent.
 
 ---
 
 ## API Python
 
-La bibliothèque `gros_mot` peut être importée directement dans vos projets.
+La bibliothèque `gros_mot` s'intègre directement dans n'importe quel projet Python.
+
+### Installation (sans cloner le dépôt)
+
+```bash
+# Copier le dossier gros_mot/ dans votre projet, puis :
+# Aucune dépendance à installer — bibliothèque standard uniquement
+```
+
+### Utilisation
 
 ```python
 from gros_mot import detect, is_clean, censor
 
-# Détection avec métadonnées
+# ── Détection complète ──────────────────────────────────────────────────────
 detections = detect("c'est quoi ce bordel de connard")
+
 for d in detections:
-    print(d.matched, d.severity, d.label)
-    # bordel  1  faible
-    # connard 2  modéré
+    print(f"{d.original!r:20} → gravité {d.severity} ({d.label})")
 
-# Vérification rapide
-print(is_clean("bonjour tout le monde"))  # True
-print(is_clean("putain c'est nul"))       # False
+# 'bordel'             → gravité 1 (faible)
+# 'connard'            → gravité 2 (modéré)
 
-# Censure
-print(censor("va te faire foutre"))
-# va te faire ******
+
+# ── Vérification rapide ─────────────────────────────────────────────────────
+is_clean("bonjour tout le monde")   # True
+is_clean("putain c'est nul")        # False
+
+
+# ── Censure ─────────────────────────────────────────────────────────────────
+print(censor("va te faire foutre espèce de con"))
+# va te faire ****** espèce de ***
+
+
+# ── Filtrer par niveau de gravité ───────────────────────────────────────────
+grave = [d for d in detect(texte) if d.severity >= 2]
 ```
 
 ### Objet `Detection`
 
-| Champ      | Type  | Description                              |
-|------------|-------|------------------------------------------|
-| `matched`  | `str` | Mot ou expression normalisé(e) détecté(e)|
-| `original` | `str` | Fragment exact du texte source           |
-| `start`    | `int` | Position de début dans le texte          |
-| `end`      | `int` | Position de fin dans le texte            |
-| `severity` | `int` | Niveau de gravité (1, 2 ou 3)            |
-| `label`    | `str` | Libellé : `"faible"`, `"modéré"`, `"élevé"` |
+```python
+@dataclass
+class Detection:
+    matched:  str   # mot/expression normalisé(e) détecté(e) — ex: "connard"
+    original: str   # fragment exact dans le texte source    — ex: "Connard!"
+    start:    int   # index de début dans le texte source
+    end:      int   # index de fin dans le texte source
+    severity: int   # niveau de gravité : 1, 2 ou 3
+    label:    str   # libellé : "faible", "modéré" ou "élevé"
+```
 
 ---
 
 ## Niveaux de gravité
 
-| Niveau | Label    | Exemples                                      |
-|--------|----------|-----------------------------------------------|
-| 1      | Faible   | merde, putain, bordel, tabarnak               |
-| 2      | Modéré   | connard, salope, ta gueule, abruti            |
-| 3      | Élevé    | insultes sexuelles, injures discriminatoires  |
+| Niveau | Label | Exemples |
+|--------|-------|----------|
+| **1** | Faible | `merde`, `putain`, `bordel`, `tabarnak`, `câlice` |
+| **2** | Modéré | `connard`, `salope`, `abruti`, `enfoiré`, `ta gueule` |
+| **3** | Élevé | insultes sexuelles, injures racistes, expressions très violentes |
 
 ---
 
-## Modèles Vosk disponibles
+## Modèles Vosk
 
-| Nom     | Taille | Précision   | Utilisation                        |
-|---------|--------|-------------|-------------------------------------|
-| `petit` | ~50 Mo | Correcte    | Usage quotidien, machines modestes  |
-| `grand` | 1,4 Go | Élevée      | Environnements silencieux, serveurs |
+| Identifiant | Taille | Précision | Recommandé pour |
+|-------------|--------|-----------|-----------------|
+| `petit` | ~50 Mo | Correcte | Usage quotidien, machines modestes |
+| `grand` | ~1,4 Go | Élevée | Environnements silencieux, serveurs |
 
-Les modèles sont fournis par [alphacephei.com/vosk](https://alphacephei.com/vosk/models) et téléchargés automatiquement dans le répertoire courant.
+Les modèles sont fournis par [alphacephei.com/vosk](https://alphacephei.com/vosk/models)  
+et téléchargés automatiquement dans le répertoire courant au premier lancement.
+
+---
+
+## Compatibilité
+
+| Fonctionnalité | macOS | Linux | Windows |
+|----------------|:-----:|:-----:|:-------:|
+| Analyse de texte (CLI) | ✅ | ✅ | ✅ |
+| Écoute microphone | ✅ | ✅ | ✅ |
+| Alerte vocale | ✅ (`say`) | ✅ (`espeak`) | ❌ |
+| Graphiques matplotlib | ✅ | ✅ | ✅ |
 
 ---
 
 ## Licence
 
-MIT — libre d'utilisation, de modification et de distribution.
+Ce projet est distribué sous licence **MIT** — libre d'utilisation, de modification et de distribution.  
+Voir le fichier [LICENSE](LICENSE) pour les détails.
+
+---
+
+<div align="center">
+
+Fait avec ❤️ en Python · Propulsé par [Vosk](https://alphacephei.com/vosk/)
+
+</div>
