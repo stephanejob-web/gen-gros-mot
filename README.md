@@ -2,7 +2,7 @@
 
 # 🤬 Détecteur de Gros Mots
 
-**Bibliothèque Python pour détecter, classifier et censurer les gros mots en français**  
+**Un outil de prise de conscience pour mieux maîtriser son langage au quotidien**  
 *Analyse de texte · Écoute microphone temps réel · 100 % offline*
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
@@ -15,12 +15,22 @@
 
 ---
 
+## Pourquoi ce projet ?
+
+On dit souvent des gros mots sans même s'en rendre compte. C'est devenu un réflexe, une habitude inconsciente dans la conversation de tous les jours. Ce projet est né d'une conviction simple : **on ne peut pas changer ce qu'on ne voit pas**.
+
+L'objectif n'est pas de juger ou de censurer, mais de **rendre visible ce qui passe inaperçu**. En signalant chaque mot problématique en temps réel — à l'écrit comme à l'oral — l'outil aide les utilisateurs à prendre conscience de la fréquence et de la gravité de leur langage, pour leur permettre d'évoluer à leur propre rythme, s'ils le souhaitent.
+
+> *"La prise de conscience est la première étape du changement."*
+
+---
+
 ## Aperçu
 
 Ce projet propose deux outils complémentaires pour analyser le langage en français :
 
 - **`cli.py`** — Analyse un texte (argument, fichier ou stdin) et retourne les gros mots détectés avec leur niveau de gravité, ou une version censurée.
-- **`mic_listener.py`** — Écoute le microphone en continu, transcrit la parole en texte via [Vosk](https://alphacephei.com/vosk/) (moteur de reconnaissance vocale offline) et déclenche une alerte vocale dès qu'un gros mot est prononcé.
+- **`mic_listener.py`** — Écoute le microphone en continu, transcrit la parole via [Vosk](https://alphacephei.com/vosk/) (moteur offline, aucune donnée envoyée sur Internet) et déclenche une alerte vocale douce dès qu'un gros mot est prononcé — comme un rappel bienveillant.
 
 ```
 $ python cli.py "c'est quoi ce bordel de connard"
