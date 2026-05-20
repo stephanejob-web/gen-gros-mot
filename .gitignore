@@ -1,5 +1,7 @@
-# Modèle Vosk (à télécharger séparément)
+# Modèles STT (à télécharger séparément)
 vosk-model-*/
+model/
+*.zip
 
 # Python
 __pycache__/
