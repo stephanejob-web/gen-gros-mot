@@ -1,80 +1,73 @@
 #!/usr/bin/env python3
 """
 Écoute le microphone en temps réel et détecte les gros mots.
-Moteur STT : Vosk (offline, 100 % local, français natif)
+Moteur STT : faster-whisper (large-v3, offline, 97% précision FR)
 
 Dépendances :
-    pip install vosk pyaudio numpy sounddevice
+    pip install faster-whisper pyaudio numpy
 
 Usage :
-    python3 mic_listener.py               # démarre l'écoute
-    python3 mic_listener.py --calibrer    # ajuste le micro avant de démarrer
-    python3 mic_listener.py --modele grand  # modèle plus précis (1,4 Go)
+    python3 mic_listener.py                    # démarre l'écoute
+    python3 mic_listener.py --list-devices     # liste les micros disponibles
+    python3 mic_listener.py --device 2         # choisir Blue Yeti (index 2)
+    python3 mic_listener.py --modele medium    # modèle plus léger (~1.5 Go)
+    python3 mic_listener.py --calibrer         # mesure le bruit ambiant
 """
 import argparse
-import json
 import os
 import platform
 import subprocess
+import struct
 import threading
 import time
-import urllib.request
-import zipfile
 from collections import Counter
 
-_OS = platform.system()   # "Darwin", "Linux", "Windows"
-
+import numpy as np
 import pyaudio
-from vosk import Model, KaldiRecognizer, SetLogLevel
+from faster_whisper import WhisperModel
 
 try:
+    import matplotlib
+    matplotlib.use("TkAgg")
     import matplotlib.pyplot as plt
     _MPL = True
-except ImportError:
+except Exception:
     _MPL = False
 
 from gros_mot import detect
 from gros_mot.wordlist import SEVERITY_COLOR
 
+_OS = platform.system()
+
 # ── ANSI ───────────────────────────────────────────────────────────────────────
-RESET = "\033[0m"
-BOLD  = "\033[1m"
-GREEN = "\033[32m"
-RED   = "\033[31m"
-GRAY  = "\033[90m"
-CYAN  = "\033[36m"
+RESET  = "\033[0m"
+BOLD   = "\033[1m"
+GREEN  = "\033[32m"
+RED    = "\033[31m"
+GRAY   = "\033[90m"
+CYAN   = "\033[36m"
 YELLOW = "\033[33m"
 
-# ── Modèles Vosk disponibles ───────────────────────────────────────────────────
-MODELS = {
-    "petit": {
-        "dir": "vosk-model-small-fr-0.22",
-        "url": "https://alphacephei.com/vosk/models/vosk-model-small-fr-0.22.zip",
-        "taille": "50 Mo",
-    },
-    "grand": {
-        "dir": "vosk-model-fr-0.22",
-        "url": "https://alphacephei.com/vosk/models/vosk-model-fr-0.22.zip",
-        "taille": "1,4 Go",
-    },
-}
-
-RATE  = 16_000   # Hz requis par Vosk
-CHUNK = 4_000    # frames par lecture (~0,25 s)
-
-# Voix TTS par défaut selon l'OS
+# Voix TTS par OS
 if _OS == "Darwin":
-    VOIX_DEFAUT = "Thomas"   # voix macOS fr_FR — alternatives : Jacques, Eddy
+    VOIX_DEFAUT = "Thomas"
 elif _OS == "Linux":
-    VOIX_DEFAUT = "fr"       # langue espeak — alternatives : fr+m1, fr+f1
+    VOIX_DEFAUT = "fr"
 else:
-    VOIX_DEFAUT = ""         # Windows : non supporté
+    VOIX_DEFAUT = ""
 
-# ── Statistiques ───────────────────────────────────────────────────────────────
+# ── Audio ──────────────────────────────────────────────────────────────────────
+RATE          = 16_000   # Hz — requis par Whisper
+CHUNK         = 1_024    # frames par lecture
+RMS_SILENCE   = 80       # amplitude RMS : en dessous = silence
+SILENCE_SECS  = 0.8      # secondes de silence avant envoi à Whisper
+MIN_SPEECH_SECS = 0.3    # durée minimale de parole à transcrire
+
+# ── Statistiques & graphique ───────────────────────────────────────────────────
 _stats_total:    int     = 0
-_stats_words:    Counter = Counter()   # mot normalisé → nb occurrences
-_stats_severity: Counter = Counter()   # gravité (1/2/3) → nb occurrences
-_word_severity:  dict    = {}          # mot normalisé → gravité (pour colorier)
+_stats_words:    Counter = Counter()
+_stats_severity: Counter = Counter()
+_word_severity:  dict    = {}
 
 _SEV_COLOR_MPL = {1: "#f0b429", 2: "#e53e3e", 3: "#9b59b6"}
 _SEV_LABEL     = {1: "Faible", 2: "Modéré", 3: "Élevé"}
@@ -105,7 +98,6 @@ def _redessiner_chart() -> None:
     ax_mots.clear()
     ax_sev.clear()
 
-    # ── Graphique gauche : top 10 mots ──
     ax_mots.set_title(f"Mots détectés  (total : {_stats_total})", fontweight="bold")
     if _stats_words:
         top = _stats_words.most_common(10)
@@ -123,7 +115,6 @@ def _redessiner_chart() -> None:
         ax_mots.text(0.5, 0.5, "En attente…", ha="center", va="center",
                      transform=ax_mots.transAxes, color="gray", fontsize=13)
 
-    # ── Graphique droite : répartition par gravité ──
     ax_sev.set_title("Répartition par gravité", fontweight="bold")
     labels = [_SEV_LABEL[s] for s in [1, 2, 3]]
     values = [_stats_severity[s] for s in [1, 2, 3]]
@@ -149,85 +140,25 @@ def _enregistrer(detections: list) -> None:
     _redessiner_chart()
 
 
-# ── Téléchargement du modèle ───────────────────────────────────────────────────
-
-def _progress(block: int, block_size: int, total: int) -> None:
-    done = block * block_size
-    pct  = min(done * 100 // total, 100) if total > 0 else 0
-    bar  = "█" * (pct // 5) + "░" * (20 - pct // 5)
-    print(f"\r  [{bar}] {pct:3d}%", end="", flush=True)
-
-
-def telecharger_modele(nom: str) -> str:
-    info = MODELS[nom]
-    model_dir = info["dir"]
-    if os.path.isdir(model_dir):
-        return model_dir
-
-    print(f"Modèle « {nom} » introuvable — téléchargement ({info['taille']})…")
-    zip_path = model_dir + ".zip"
-    urllib.request.urlretrieve(info["url"], zip_path, reporthook=_progress)
-    print()
-    print("  Extraction…", end=" ", flush=True)
-    with zipfile.ZipFile(zip_path, "r") as zf:
-        zf.extractall(".")
-    os.remove(zip_path)
-    print("OK")
-    return model_dir
-
-
-# ── Calibration micro ──────────────────────────────────────────────────────────
-
-def calibrer(duree: float = 3.0) -> None:
-    try:
-        import numpy as np
-    except ImportError:
-        print("numpy non installé — calibration ignorée.")
-        return
-
-    print(f"Calibration : restez silencieux {duree:.0f} s…", flush=True)
-    pa = pyaudio.PyAudio()
-    stream = pa.open(format=pyaudio.paInt16, channels=1, rate=RATE,
-                     input=True, frames_per_buffer=CHUNK)
-    energies: list[float] = []
-    t0 = time.time()
-    while time.time() - t0 < duree:
-        data = stream.read(CHUNK, exception_on_overflow=False)
-        arr = np.frombuffer(data, np.int16).astype(np.float32)
-        energies.append(float(np.sqrt(np.mean(arr ** 2))))
-    stream.stop_stream()
-    stream.close()
-    pa.terminate()
-
-    bruit = float(np.mean(energies))
-    print(f"  Bruit ambiant moyen : {bruit:.0f} (amplitude RMS)")
-    print(f"  Tout va bien — Vosk gère le seuil automatiquement.\n")
-
-
-# ── Synthèse vocale (macOS : say / Linux : espeak) ────────────────────────────
-
-_tts_lock = threading.Lock()   # évite que deux alertes se chevauchent
+# ── TTS ────────────────────────────────────────────────────────────────────────
+_tts_lock = threading.Lock()
 
 
 def _dire(message: str, voix: str) -> None:
-    """Joue le message via TTS (macOS : say, Linux : espeak) — bloquant, à lancer dans un thread."""
     with _tts_lock:
         if _OS == "Darwin":
             subprocess.run(["say", "-v", voix, message], check=False)
         elif _OS == "Linux":
             subprocess.run(["espeak", "-v", voix, message], check=False)
-        # Windows : non supporté, alerte silencieuse
 
 
 def alerter(nom: str, voix: str) -> None:
-    """Lance l'alerte vocale dans un thread pour ne pas bloquer l'écoute micro."""
-    message = "S'il te plaît, surveille ton langage."
+    message = f"{nom}, surveille ton langage."
     t = threading.Thread(target=_dire, args=(message, voix), daemon=True)
     t.start()
 
 
-# ── Affichage résultats ────────────────────────────────────────────────────────
-
+# ── Affichage ──────────────────────────────────────────────────────────────────
 def afficher(text: str, nom: str, voix: str) -> None:
     print(f"\r{BOLD}Entendu :{RESET} {text}")
     detections = detect(text)
@@ -243,53 +174,107 @@ def afficher(text: str, nom: str, voix: str) -> None:
     print()
 
 
-# ── Boucle d'écoute principale ─────────────────────────────────────────────────
+# ── Audio utils ────────────────────────────────────────────────────────────────
+def _rms(data: bytes) -> float:
+    samples = np.frombuffer(data, dtype=np.int16).astype(np.float32)
+    return float(np.sqrt(np.mean(samples ** 2))) if len(samples) else 0.0
 
-def ecouter(model_dir: str, nom: str, voix: str) -> None:
-    SetLogLevel(-1)  # silence les logs de Vosk
-    print("Chargement du modèle…", end=" ", flush=True)
-    model = Model(model_dir)
-    rec   = KaldiRecognizer(model, RATE)
-    rec.SetWords(True)
-    print("OK")
+
+def calibrer(duree: float = 3.0) -> None:
+    print(f"Calibration : restez silencieux {duree:.0f} s…", flush=True)
+    pa = pyaudio.PyAudio()
+    stream = pa.open(format=pyaudio.paInt16, channels=1, rate=RATE,
+                     input=True, frames_per_buffer=CHUNK)
+    energies = []
+    t0 = time.time()
+    while time.time() - t0 < duree:
+        data = stream.read(CHUNK, exception_on_overflow=False)
+        energies.append(_rms(data))
+    stream.stop_stream()
+    stream.close()
+    pa.terminate()
+    bruit = float(np.mean(energies))
+    seuil = bruit * 2.5
+    print(f"  Bruit ambiant RMS : {bruit:.0f}")
+    print(f"  Seuil recommandé  : {seuil:.0f}  (lancez avec --seuil {seuil:.0f})\n")
+
+
+# ── Boucle d'écoute principale ─────────────────────────────────────────────────
+def ecouter(model_name: str, nom: str, voix: str,
+            device_index: int | None, seuil: float) -> None:
+
+    print(f"Chargement du modèle Whisper {BOLD}{model_name}{RESET}…", flush=True)
+    print("  (premier lancement = téléchargement automatique ~quelques Go)\n")
+    model = WhisperModel(model_name, device="cpu", compute_type="int8")
+    print(f"{GREEN}Modèle chargé.{RESET}\n")
 
     pa = pyaudio.PyAudio()
-    stream = pa.open(
+    open_kwargs: dict = dict(
         format=pyaudio.paInt16,
         channels=1,
         rate=RATE,
         input=True,
         frames_per_buffer=CHUNK,
     )
+    if device_index is not None:
+        open_kwargs["input_device_index"] = device_index
+    stream = pa.open(**open_kwargs)
     stream.start_stream()
     _init_chart()
 
     print(
-        f"\n{GREEN}{BOLD}Microphone actif{RESET} — "
+        f"{GREEN}{BOLD}Microphone actif{RESET} — "
         f"nom : {BOLD}{nom}{RESET}  voix : {BOLD}{voix}{RESET}  "
+        f"seuil RMS : {BOLD}{seuil:.0f}{RESET}  "
         f"— Ctrl+C pour quitter.\n"
     )
 
+    speech_buffer: list[bytes] = []
+    silence_chunks = 0
+    silence_limit   = int(SILENCE_SECS * RATE / CHUNK)
+    min_speech_chunks = int(MIN_SPEECH_SECS * RATE / CHUNK)
+    speaking = False
     _tick = 0
+
     try:
         while True:
             data = stream.read(CHUNK, exception_on_overflow=False)
+            level = _rms(data)
 
-            if rec.AcceptWaveform(data):
-                # Résultat final (silence détecté après la parole)
-                result = json.loads(rec.Result())
-                text   = result.get("text", "").strip()
-                if text:
-                    afficher(text, nom, voix)
+            if level >= seuil:
+                speech_buffer.append(data)
+                silence_chunks = 0
+                if not speaking:
+                    speaking = True
+                    print(f"\r{CYAN}● Parole détectée…{RESET}   ", end="", flush=True)
             else:
-                # Résultat partiel (parole en cours)
-                partial = json.loads(rec.PartialResult()).get("partial", "").strip()
-                if partial:
-                    print(f"\r{GRAY}⬤ {partial}{RESET}   ", end="", flush=True)
+                if speaking:
+                    silence_chunks += 1
+                    speech_buffer.append(data)
+                    if silence_chunks >= silence_limit:
+                        # Fin de segment — transcrire si assez long
+                        if len(speech_buffer) >= min_speech_chunks:
+                            audio_data = b"".join(speech_buffer)
+                            audio_np = np.frombuffer(audio_data, dtype=np.int16).astype(np.float32) / 32768.0
+                            print(f"\r{GRAY}Transcription…{RESET}   ", end="", flush=True)
+                            segments, _ = model.transcribe(
+                                audio_np,
+                                language="fr",
+                                beam_size=5,
+                                vad_filter=True,
+                                vad_parameters={"min_silence_duration_ms": 300},
+                            )
+                            text = " ".join(s.text.strip() for s in segments).strip()
+                            if text:
+                                print("\r" + " " * 40 + "\r", end="")
+                                afficher(text, nom, voix)
+                        speech_buffer.clear()
+                        silence_chunks = 0
+                        speaking = False
 
-            # Garder la fenêtre matplotlib réactive (toutes les ~2 s)
+            # Garder fenêtre matplotlib réactive
             _tick += 1
-            if _MPL and _tick % 8 == 0:
+            if _MPL and _tick % 20 == 0:
                 plt.pause(0.001)
 
     except KeyboardInterrupt:
@@ -298,50 +283,54 @@ def ecouter(model_dir: str, nom: str, voix: str) -> None:
         stream.stop_stream()
         stream.close()
         pa.terminate()
-        print(f"\n{GRAY}Arrêt.{RESET}")
+        print(f"\n{GRAY}Arrêt.  Total session : {_stats_total} gros mot(s).{RESET}")
 
 
 # ── CLI ────────────────────────────────────────────────────────────────────────
-
 def main() -> None:
     parser = argparse.ArgumentParser(
         prog="mic-listener",
-        description="Détection de gros mots en temps réel via microphone (Vosk, offline)",
+        description="Détection de gros mots en temps réel via microphone (faster-whisper, offline)",
     )
     parser.add_argument(
         "--modele",
-        default="petit",
-        choices=["petit", "grand"],
-        help="Modèle Vosk : 'petit' (50 Mo, recommandé) ou 'grand' (1,4 Go, plus précis).",
+        default="large-v3",
+        choices=["tiny", "base", "small", "medium", "large-v2", "large-v3"],
+        help="Modèle Whisper (défaut : large-v3, précision maximale).",
     )
-    parser.add_argument(
-        "--nom",
-        default="Jean",
-        metavar="PRENOM",
-        help="Prénom prononcé dans l'alerte vocale (défaut : Jean).",
-    )
-    voix_help = {
-        "Darwin": f"Voix macOS fr_FR (défaut : {VOIX_DEFAUT}). Autres : Jacques, 'Eddy (Français (France))'.",
-        "Linux":  f"Langue espeak (défaut : {VOIX_DEFAUT}). Autres : fr+m1, fr+f1, fr+m3.",
-    }.get(_OS, "Voix TTS (non supporté sur cet OS).")
-    parser.add_argument(
-        "--voix",
-        default=VOIX_DEFAUT,
-        metavar="VOIX",
-        help=voix_help,
-    )
-    parser.add_argument(
-        "--calibrer",
-        action="store_true",
-        help="Mesure le bruit ambiant avant de démarrer.",
-    )
+    parser.add_argument("--nom",    default="Jean", metavar="PRENOM")
+    parser.add_argument("--voix",   default=VOIX_DEFAUT, metavar="VOIX")
+    parser.add_argument("--seuil",  type=float, default=RMS_SILENCE, metavar="RMS",
+                        help=f"Seuil énergie micro (défaut : {RMS_SILENCE}). Utiliser --calibrer pour ajuster.")
+    parser.add_argument("--device", type=int, default=None, metavar="INDEX",
+                        help="Index du périphérique audio (voir --list-devices).")
+    parser.add_argument("--list-devices", action="store_true",
+                        help="Affiche les micros disponibles et quitte.")
+    parser.add_argument("--calibrer", action="store_true",
+                        help="Mesure le bruit ambiant pour ajuster --seuil.")
     args = parser.parse_args()
+
+    if args.list_devices:
+        pa = pyaudio.PyAudio()
+        print("Périphériques audio disponibles :")
+        for i in range(pa.get_device_count()):
+            info = pa.get_device_info_by_index(i)
+            if info["maxInputChannels"] > 0:
+                print(f"  [{i:2d}] {info['name']}")
+        pa.terminate()
+        return
 
     if args.calibrer:
         calibrer()
+        return
 
-    model_dir = telecharger_modele(args.modele)
-    ecouter(model_dir, nom=args.nom, voix=args.voix)
+    ecouter(
+        model_name=args.modele,
+        nom=args.nom,
+        voix=args.voix,
+        device_index=args.device,
+        seuil=args.seuil,
+    )
 
 
 if __name__ == "__main__":
